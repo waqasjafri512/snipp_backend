@@ -70,7 +70,7 @@ Welcome to the **Snipp** backend API! This is a high-performance Node.js & Postg
 | `/api/stories` | Upload and manage 24h stories |
 | `/api/streams` | RTC Token generation for Agora |
 
-## 📦 Deployment Note
+## 📦 Deployment Note!
 
 This backend is ready for deployment on **Render.com**, **Railway.app**, or **DigitalOcean**. 
 
