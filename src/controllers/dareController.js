@@ -1,6 +1,8 @@
 const DareModel = require('../models/dareModel');
 const NotificationModel = require('../models/notificationModel');
 const ProfileModel = require('../models/profileModel');
+const { uploadToCloudinary } = require('../config/cloudinary');
+const fs = require('fs');
 
 // POST /api/dares/create
 const createDare = async (req, res) => {
@@ -385,9 +387,15 @@ const uploadDareMedia = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    const mediaUrl = `/uploads/${req.file.filename}`;
-    const ext = req.file.originalname.split('.').pop().toLowerCase();
-    const mediaType = ['mp4', 'mov', 'avi', 'mkv'].includes(ext) ? 'video' : 'image';
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(req.file.path, 'dares');
+    const mediaUrl = result.secure_url;
+    const mediaType = result.resource_type; // 'image' or 'video'
+
+    // Clean up local file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.json({
       success: true,

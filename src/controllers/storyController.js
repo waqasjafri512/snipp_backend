@@ -1,4 +1,6 @@
 const StoryModel = require('../models/storyModel');
+const { uploadToCloudinary } = require('../config/cloudinary');
+const fs = require('fs');
 
 const createStory = async (req, res) => {
   try {
@@ -6,9 +8,10 @@ const createStory = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    const mediaUrl = `/uploads/${req.file.filename}`;
-    const ext = req.file.originalname.split('.').pop().toLowerCase();
-    const mediaType = ['mp4', 'mov', 'avi', 'mkv'].includes(ext) ? 'video' : 'image';
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(req.file.path, 'stories');
+    const mediaUrl = result.secure_url;
+    const mediaType = result.resource_type; // 'image' or 'video'
     const { caption } = req.body;
 
     const story = await StoryModel.createStory({
@@ -17,6 +20,11 @@ const createStory = async (req, res) => {
       media_type: mediaType,
       caption: caption || ''
     });
+
+    // Clean up local file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.status(201).json({
       success: true,

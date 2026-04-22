@@ -1,5 +1,7 @@
 const ProfileModel = require('../models/profileModel');
 const NotificationModel = require('../models/notificationModel');
+const { uploadToCloudinary } = require('../config/cloudinary');
+const fs = require('fs');
 
 // GET /api/profile/:userId
 const getProfile = async (req, res) => {
@@ -159,8 +161,17 @@ const uploadAvatar = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    const avatarUrl = `/uploads/${req.file.filename}`;
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(req.file.path, 'avatars');
+    const avatarUrl = result.secure_url;
+
+    // Update profile in DB
     const profile = await ProfileModel.updateProfile(req.user.id, { avatar_url: avatarUrl });
+
+    // Clean up local file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.json({
       success: true,
