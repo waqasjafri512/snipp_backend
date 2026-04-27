@@ -32,3 +32,4 @@ Thumbs.db
 # Project specific
 src/uploads/*
 !src/uploads/.gitkeep
+firebase-adminsdk.json

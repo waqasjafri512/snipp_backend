@@ -24,7 +24,7 @@ const createNotificationsTable = async () => {
 // Create a notification
 const createNotification = async ({ user_id, actor_id, type, dare_id }) => {
   // Don't notify if actor is the same as receiver
-  if (user_id === actor_id) return null;
+  if (String(user_id) === String(actor_id)) return null;
 
   try {
     const result = await pool.query(

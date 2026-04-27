@@ -12,6 +12,7 @@ const searchRoutes = require('./routes/searchRoutes');
 const messageRoutes = require('./routes/messageRoutes');
 const streamRoutes = require('./routes/streamRoutes');
 const storyRoutes = require('./routes/storyRoutes');
+const groupRoutes = require('./routes/groupRoutes');
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/streams', streamRoutes);
 app.use('/api/stories', storyRoutes);
+app.use('/api/groups', groupRoutes);
 
 // 404 handler
 app.use((req, res) => {

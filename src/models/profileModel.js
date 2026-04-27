@@ -6,6 +6,7 @@ const createProfilesTable = async () => {
     CREATE TABLE IF NOT EXISTS profiles (
       id SERIAL PRIMARY KEY,
       user_id INTEGER UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      cover_url TEXT DEFAULT NULL,
       location VARCHAR(100) DEFAULT '',
       website VARCHAR(255) DEFAULT '',
       date_of_birth DATE DEFAULT NULL,
@@ -28,6 +29,22 @@ const createProfilesTable = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(follower_id, following_id)
     );
+
+    DO $$ 
+    BEGIN 
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='cover_url') THEN
+        ALTER TABLE profiles ADD COLUMN cover_url TEXT DEFAULT NULL;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='works_at') THEN
+        ALTER TABLE profiles ADD COLUMN works_at VARCHAR(150) DEFAULT '';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='studied_at') THEN
+        ALTER TABLE profiles ADD COLUMN studied_at VARCHAR(150) DEFAULT '';
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='from_location') THEN
+        ALTER TABLE profiles ADD COLUMN from_location VARCHAR(150) DEFAULT '';
+      END IF;
+    END $$;
   `;
   try {
     await pool.query(query);
@@ -50,7 +67,7 @@ const createProfile = async (userId) => {
 const getProfileByUserId = async (userId) => {
   const result = await pool.query(
     `SELECT u.id, u.username, u.email, u.full_name, u.avatar_url, u.bio, u.category, u.website, u.is_verified, u.created_at,
-            p.location, p.date_of_birth, p.gender,
+            p.cover_url, p.location, p.date_of_birth, p.gender, p.works_at, p.studied_at, p.from_location,
             p.dares_posted, p.dares_completed, p.dares_accepted,
             p.followers_count, p.following_count, p.xp, p.level
      FROM users u
@@ -68,7 +85,7 @@ const updateProfile = async (userId, fields) => {
   const profileFields = {};
   
   const userColumns = ['full_name', 'bio', 'avatar_url', 'category', 'website'];
-  const profileColumns = ['location', 'date_of_birth', 'gender'];
+  const profileColumns = ['location', 'date_of_birth', 'gender', 'cover_url', 'works_at', 'studied_at', 'from_location'];
 
   for (const [key, value] of Object.entries(fields)) {
     if (userColumns.includes(key)) userFields[key] = value;
@@ -233,6 +250,38 @@ const updateXP = async (userId, amount) => {
   }
 };
 
+// Blocking logic
+const blockUser = async (blockerId, blockedId) => {
+  await pool.query(
+    'INSERT INTO blocked_users (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+    [blockerId, blockedId]
+  );
+};
+
+const unblockUser = async (blockerId, blockedId) => {
+  await pool.query(
+    'DELETE FROM blocked_users WHERE blocker_id = $1 AND blocked_id = $2',
+    [blockerId, blockedId]
+  );
+};
+
+const getBlockedUsers = async (userId) => {
+  const result = await pool.query(
+    `SELECT u.id, u.username, u.full_name, u.avatar_url 
+     FROM blocked_users b 
+     JOIN users u ON b.blocked_id = u.id 
+     WHERE b.blocker_id = $1`,
+    [userId]
+  );
+  return result.rows;
+};
+
+// FCM Token (proxy to user model)
+const updateFcmToken = async (userId, token) => {
+  const userModel = require('./userModel');
+  await userModel.updateFcmToken(userId, token);
+};
+
 module.exports = {
   createProfilesTable,
   createProfile,
@@ -244,4 +293,8 @@ module.exports = {
   getFollowers,
   getFollowing,
   updateXP,
+  blockUser,
+  unblockUser,
+  getBlockedUsers,
+  updateFcmToken
 };

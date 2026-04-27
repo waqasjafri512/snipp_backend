@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const UserModel = require('../models/userModel');
+const admin = require('../config/firebase');
 
 const protect = async (req, res, next) => {
   try {
@@ -17,11 +18,38 @@ const protect = async (req, res, next) => {
       });
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    let user;
+
+    try {
+      // 1. First, try to verify as a Firebase ID Token
+      if (admin.apps.length > 0) {
+        const decodedFirebaseToken = await admin.auth().verifyIdToken(token);
+        user = await UserModel.findByFirebaseUid(decodedFirebaseToken.uid);
+        
+        // If user is not found by Firebase UID, we might need to link them, 
+        // but typically they should hit /sync first. Let's return error if not found.
+        if (!user) {
+          // As a fallback, check by email if sync hasn't fully completed
+          user = await UserModel.findByEmail(decodedFirebaseToken.email);
+        }
+      } else {
+        throw new Error("Firebase not initialized");
+      }
+    } catch (firebaseError) {
+      // 2. Fallback to our Custom JWT (for legacy active sessions)
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        user = await UserModel.findById(decoded.id);
+      } catch (jwtError) {
+        // If both fail, return error
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid or expired token',
+        });
+      }
+    }
 
     // Check if user still exists
-    const user = await UserModel.findById(decoded.id);
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -33,18 +61,6 @@ const protect = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token',
-      });
-    }
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token expired, please login again',
-      });
-    }
     return res.status(500).json({
       success: false,
       message: 'Server error in authentication',

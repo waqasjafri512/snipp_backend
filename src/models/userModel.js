@@ -17,7 +17,8 @@ const createUsersTable = async () => {
       is_active BOOLEAN DEFAULT true,
       fcm_token TEXT DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
   try {
@@ -77,11 +78,40 @@ const updateUser = async (id, fields) => {
   return result.rows[0];
 };
 
+// Update user FCM token
+const updateFcmToken = async (userId, token) => {
+  await pool.query('UPDATE users SET fcm_token = $1 WHERE id = $2', [token, userId]);
+};
+
+// Find user by Firebase UID
+const findByFirebaseUid = async (uid) => {
+  const result = await pool.query(
+    'SELECT id, username, email, full_name, avatar_url, bio, category, website, is_verified, created_at FROM users WHERE firebase_uid = $1',
+    [uid]
+  );
+  return result.rows[0];
+};
+
+// Sync Firebase User
+const syncFirebaseUser = async ({ firebase_uid, email, username, full_name, avatar_url }) => {
+  const result = await pool.query(
+    `INSERT INTO users (firebase_uid, email, username, full_name, avatar_url, is_verified) 
+     VALUES ($1, LOWER($2), $3, $4, $5, true) 
+     ON CONFLICT (email) DO UPDATE SET firebase_uid = EXCLUDED.firebase_uid, is_verified = true
+     RETURNING id, username, email, full_name, avatar_url, bio, category, website, is_verified, created_at`,
+    [firebase_uid, email, username, full_name, avatar_url]
+  );
+  return result.rows[0];
+};
+
 module.exports = {
   createUsersTable,
   findByEmail,
   findByUsername,
   findById,
+  findByFirebaseUid,
   createUser,
   updateUser,
+  updateFcmToken,
+  syncFirebaseUser,
 };

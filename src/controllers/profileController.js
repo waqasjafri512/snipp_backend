@@ -42,7 +42,7 @@ const getProfile = async (req, res) => {
 // PUT /api/profile/update
 const updateProfile = async (req, res) => {
   try {
-    const allowedFields = ['full_name', 'bio', 'avatar_url', 'location', 'website', 'category', 'date_of_birth', 'gender'];
+    const allowedFields = ['full_name', 'bio', 'avatar_url', 'cover_url', 'location', 'website', 'category', 'date_of_birth', 'gender', 'works_at', 'studied_at', 'from_location'];
     const updates = {};
 
     for (const field of allowedFields) {
@@ -184,6 +184,47 @@ const uploadAvatar = async (req, res) => {
   }
 };
 
+// POST /api/profile/upload-cover
+const uploadCover = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    // Upload to Cloudinary
+    const result = await uploadToCloudinary(req.file.path, 'covers');
+    const coverUrl = result.secure_url;
+
+    // Update profile in DB
+    const profile = await ProfileModel.updateProfile(req.user.id, { cover_url: coverUrl });
+
+    // Clean up local file
+    if (fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.json({
+      success: true,
+      message: 'Cover photo updated successfully',
+      data: { coverUrl, profile },
+    });
+  } catch (error) {
+    console.error('UploadCover error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// POST /api/profile/fcm-token
+const updateFcmToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    await ProfileModel.updateFcmToken(req.user.id, token);
+    res.json({ success: true, message: 'FCM token updated' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -192,4 +233,6 @@ module.exports = {
   getFollowers,
   getFollowing,
   uploadAvatar,
+  uploadCover,
+  updateFcmToken
 };

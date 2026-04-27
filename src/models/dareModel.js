@@ -29,6 +29,7 @@ const createDareTables = async () => {
       comments_count INTEGER DEFAULT 0,
       accepts_count INTEGER DEFAULT 0,
       is_active BOOLEAN DEFAULT true,
+      post_type VARCHAR(20) DEFAULT 'dare' CHECK (post_type IN ('dare', 'general')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -80,6 +81,10 @@ const createDareTables = async () => {
       IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='comments' AND column_name='likes_count') THEN
         ALTER TABLE comments ADD COLUMN likes_count INTEGER DEFAULT 0;
       END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='dares' AND column_name='post_type') THEN
+        ALTER TABLE dares ADD COLUMN post_type VARCHAR(20) DEFAULT 'dare' CHECK (post_type IN ('dare', 'general'));
+      END IF;
     END $$;
   `;
   try {
@@ -90,13 +95,13 @@ const createDareTables = async () => {
   }
 };
 
-// Create a dare
-const createDare = async ({ creator_id, title, description, category_id, difficulty, media_url, media_type }) => {
+// Create a dare or post
+const createDare = async ({ creator_id, title, description, category_id, difficulty, media_url, media_type, post_type }) => {
   const result = await pool.query(
-    `INSERT INTO dares (creator_id, title, description, category_id, difficulty, media_url, media_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO dares (creator_id, title, description, category_id, difficulty, media_url, media_type, post_type)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [creator_id, title, description, category_id || null, difficulty || 'medium', media_url || null, media_type || null]
+    [creator_id, title, description, category_id || null, difficulty || 'medium', media_url || null, media_type || null, post_type || 'dare']
   );
 
   // Increment user's dares_posted count
@@ -111,54 +116,66 @@ const createDare = async ({ creator_id, title, description, category_id, difficu
 // Get feed with pagination
 const getFeed = async (userId, limit = 10, offset = 0) => {
   const query = `
-    (
-      SELECT d.*, 
-             u.username AS creator_username, 
-             u.full_name AS creator_name,
-             u.avatar_url AS creator_avatar,
-             u.is_verified AS creator_verified,
-             c.name AS category_name,
-             c.icon AS category_icon,
-             EXISTS(SELECT 1 FROM likes WHERE user_id = $1 AND dare_id = d.id) AS is_liked,
-             EXISTS(SELECT 1 FROM dare_accepts WHERE user_id = $1 AND dare_id = d.id) AS is_accepted,
-             EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = d.creator_id) AS is_following_creator,
-             'dare' as post_type,
-             NULL as solver_id,
-             NULL as solver_username,
-             NULL as solver_avatar,
-             false as is_following_solver
-      FROM dares d
-      JOIN users u ON d.creator_id = u.id
-      LEFT JOIN categories c ON d.category_id = c.id
-      WHERE d.is_active = true
+    WITH blocked_ids AS (
+      SELECT blocked_id FROM blocked_users WHERE blocker_id = $1
+      UNION
+      SELECT blocker_id FROM blocked_users WHERE blocked_id = $1
     )
-    UNION ALL
-    (
-      SELECT d.id, d.creator_id, d.title, d.description, d.category_id, d.difficulty, 
-             da.proof_url as media_url, 'video' as media_type,
-             d.likes_count, d.comments_count, d.accepts_count, d.is_active, 
-             da.completed_at as created_at, d.updated_at,
-             u.username AS creator_username, 
-             u.full_name AS creator_name,
-             u.avatar_url AS creator_avatar,
-             u.is_verified AS creator_verified,
-             c.name AS category_name,
-             c.icon AS category_icon,
-             EXISTS(SELECT 1 FROM likes WHERE user_id = $1 AND dare_id = d.id) AS is_liked,
-             true AS is_accepted,
-             EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = d.creator_id) AS is_following_creator,
-             'completion' as post_type,
-             da.user_id as solver_id,
-             us.username as solver_username,
-             us.avatar_url as solver_avatar,
-             EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = da.user_id) AS is_following_solver
-      FROM dare_accepts da
-      JOIN dares d ON da.dare_id = d.id
-      JOIN users u ON d.creator_id = u.id
-      JOIN users us ON da.user_id = us.id
-      LEFT JOIN categories c ON d.category_id = c.id
-      WHERE da.status = 'completed'
-    )
+    SELECT * FROM (
+      (
+        SELECT d.id, d.creator_id, d.title, d.description, d.category_id, d.difficulty, 
+               d.media_url, d.media_type, d.likes_count, d.comments_count, d.accepts_count, 
+               d.is_active, d.post_type, d.created_at, d.updated_at,
+               u.username AS creator_username, 
+               u.full_name AS creator_name,
+               u.avatar_url AS creator_avatar,
+               u.is_verified AS creator_verified,
+               c.name AS category_name,
+               c.icon AS category_icon,
+               EXISTS(SELECT 1 FROM likes WHERE user_id = $1 AND dare_id = d.id) AS is_liked,
+               EXISTS(SELECT 1 FROM dare_accepts WHERE user_id = $1 AND dare_id = d.id) AS is_accepted,
+               EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = d.creator_id) AS is_following_creator,
+               d.post_type as actual_post_type,
+               NULL::integer as solver_id,
+               NULL::varchar as solver_username,
+               NULL::varchar as solver_avatar,
+               false as is_following_solver
+        FROM dares d
+        JOIN users u ON d.creator_id = u.id
+        LEFT JOIN categories c ON d.category_id = c.id
+        WHERE d.is_active = true 
+        AND d.creator_id NOT IN (SELECT blocked_id FROM blocked_ids)
+      )
+      UNION ALL
+      (
+        SELECT d.id, d.creator_id, d.title, d.description, d.category_id, d.difficulty, 
+               da.proof_url as media_url, 'video' as media_type,
+               d.likes_count, d.comments_count, d.accepts_count, 
+               d.is_active, 'completion' as post_type, da.completed_at as created_at, d.updated_at,
+               u.username AS creator_username, 
+               u.full_name AS creator_name,
+               u.avatar_url AS creator_avatar,
+               u.is_verified AS creator_verified,
+               c.name AS category_name,
+               c.icon AS category_icon,
+               EXISTS(SELECT 1 FROM likes WHERE user_id = $1 AND dare_id = d.id) AS is_liked,
+               true AS is_accepted,
+               EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = d.creator_id) AS is_following_creator,
+               d.post_type as actual_post_type,
+               da.user_id as solver_id,
+               us.username as solver_username,
+               us.avatar_url as solver_avatar,
+               EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = da.user_id) AS is_following_solver
+        FROM dare_accepts da
+        JOIN dares d ON da.dare_id = d.id
+        JOIN users u ON d.creator_id = u.id
+        JOIN users us ON da.user_id = us.id
+        LEFT JOIN categories c ON d.category_id = c.id
+        WHERE da.status = 'completed'
+        AND d.creator_id NOT IN (SELECT blocked_id FROM blocked_ids)
+        AND da.user_id NOT IN (SELECT blocked_id FROM blocked_ids)
+      )
+    ) combined
     ORDER BY created_at DESC
     LIMIT $2 OFFSET $3
   `;
@@ -308,6 +325,11 @@ const getComments = async (dareId, userId, limit = 20, offset = 0) => {
      FROM comments cm
      JOIN users u ON cm.user_id = u.id
      WHERE cm.dare_id = $2
+     AND cm.user_id NOT IN (
+       SELECT blocked_id FROM blocked_users WHERE blocker_id = $1
+       UNION
+       SELECT blocker_id FROM blocked_users WHERE blocked_id = $1
+     )
      ORDER BY cm.created_at ASC
      LIMIT $3 OFFSET $4`,
     [userId, dareId, limit, offset]
@@ -417,8 +439,15 @@ const completeDare = async (dareId, userId, proofUrl) => {
 // Get user's dares
 const getUserDares = async (userId, limit = 10, offset = 0) => {
   const result = await pool.query(
-    `SELECT d.*, c.name AS category_name, c.icon AS category_icon
+    `SELECT d.*, 
+            u.username AS creator_username, 
+            u.full_name AS creator_name,
+            u.avatar_url AS creator_avatar,
+            u.is_verified AS creator_verified,
+            c.name AS category_name, 
+            c.icon AS category_icon
      FROM dares d
+     JOIN users u ON d.creator_id = u.id
      LEFT JOIN categories c ON d.category_id = c.id
      WHERE d.creator_id = $1 AND d.is_active = true
      ORDER BY d.created_at DESC
@@ -431,9 +460,22 @@ const getUserDares = async (userId, limit = 10, offset = 0) => {
 // Get dares user participated in
 const getParticipatedDares = async (userId, limit = 10, offset = 0) => {
   const result = await pool.query(
-    `SELECT d.*, c.name AS category_name, c.icon AS category_icon, da.status, da.proof_url
+    `SELECT d.*, 
+            u.username AS creator_username, 
+            u.full_name AS creator_name,
+            u.avatar_url AS creator_avatar,
+            u.is_verified AS creator_verified,
+            c.name AS category_name, 
+            c.icon AS category_icon, 
+            da.status, 
+            da.proof_url,
+            su.full_name AS solver_full_name,
+            su.username AS solver_username,
+            su.avatar_url AS solver_avatar
      FROM dares d
      JOIN dare_accepts da ON d.id = da.dare_id
+     JOIN users u ON d.creator_id = u.id
+     JOIN users su ON da.user_id = su.id
      LEFT JOIN categories c ON d.category_id = c.id
      WHERE da.user_id = $1
      ORDER BY da.created_at DESC

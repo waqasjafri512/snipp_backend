@@ -2,12 +2,69 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const UserModel = require('../models/userModel');
 const ProfileModel = require('../models/profileModel');
+const AuthModel = require('../models/authModel');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../services/mailService');
 
 // Generate JWT Token
 const generateToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   });
+};
+
+// POST /api/auth/sync
+// Called after Firebase auth success to sync user to PostgreSQL
+const syncFirebase = async (req, res) => {
+  try {
+    // If the request passes the protect middleware, we can just use req.user.
+    // However, this is typically an open route where Flutter passes the token in header 
+    // and uid in body. We can verify it securely here.
+    const admin = require('../config/firebase');
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, message: 'No Firebase token provided' });
+    }
+    const token = authHeader.split(' ')[1];
+    
+    let decodedToken;
+    try {
+      decodedToken = await admin.auth().verifyIdToken(token);
+    } catch (e) {
+      return res.status(401).json({ success: false, message: 'Invalid Firebase token' });
+    }
+
+    const uid = decodedToken.uid;
+    const email = decodedToken.email;
+    const { username, full_name, avatar_url } = req.body;
+
+    let user = await UserModel.findByFirebaseUid(uid);
+
+    if (!user) {
+      // Create user or link if email exists
+      let existingEmail = await UserModel.findByEmail(email);
+      if (existingEmail) {
+        // Link existing user to this firebase account
+        user = await UserModel.syncFirebaseUser({ firebase_uid: uid, email, username: existingEmail.username, full_name: existingEmail.full_name, avatar_url });
+      } else {
+        // Create new user completely
+        const finalUsername = username || email.split('@')[0] + Math.floor(Math.random() * 1000);
+        user = await UserModel.syncFirebaseUser({ firebase_uid: uid, email, username: finalUsername, full_name: full_name || finalUsername, avatar_url });
+        await ProfileModel.createProfile(user.id);
+      }
+    }
+
+    // Generate our JWT token so existing app APIs don't break immediately
+    const jwtToken = generateToken(user.id);
+
+    res.status(200).json({
+      success: true,
+      message: 'Firebase user synced successfully',
+      data: { user, token: jwtToken }
+    });
+  } catch (error) {
+    console.error('Firebase sync error:', error);
+    res.status(500).json({ success: false, message: 'Server error during firebase sync' });
+  }
 };
 
 // POST /api/auth/register
@@ -63,12 +120,16 @@ const register = async (req, res) => {
     // Create profile for the user
     await ProfileModel.createProfile(user.id);
 
+    // Generate Verification Token
+    const verifyToken = await AuthModel.createVerificationToken(user.id);
+    await sendVerificationEmail(email, verifyToken);
+
     // Generate token
     const token = generateToken(user.id);
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'User registered successfully. Please verify your email.',
       data: {
         user,
         token,
@@ -88,50 +149,40 @@ const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validation
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: 'Email and password are required',
+        message: 'Please provide email and password',
       });
     }
 
+    // Check user and password
     const user = await UserModel.findByEmail(email);
-    if (!user) {
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({
         success: false,
         message: 'Invalid email or password',
       });
     }
 
-    // Check if account is active
     if (!user.is_active) {
       return res.status(403).json({
         success: false,
-        message: 'Account has been deactivated',
-      });
-    }
-
-    // Verify password
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password',
+        message: 'Account is deactivated. Please contact support.',
       });
     }
 
     // Generate token
     const token = generateToken(user.id);
 
-    // Return user without password
-    const { password: _, ...userWithoutPassword } = user;
+    // Remove password from response
+    delete user.password;
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
       data: {
-        user: userWithoutPassword,
+        user,
         token,
       },
     });
@@ -144,27 +195,96 @@ const login = async (req, res) => {
   }
 };
 
-// GET /api/auth/me — Get current user profile
+// GET /api/auth/me
 const getMe = async (req, res) => {
   try {
     const user = await UserModel.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found',
-      });
-    }
-
     res.status(200).json({
       success: true,
-      data: { user },
+      data: {
+        user,
+      },
     });
   } catch (error) {
-    console.error('GetMe error:', error);
+    console.error('Get me error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: 'Server error fetching user data',
     });
+  }
+};
+
+// POST /api/auth/forgot-password
+const forgotPassword = async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ success: false, message: 'Email is required' });
+
+  try {
+    const token = await AuthModel.createResetToken(email);
+    if (token) {
+      await sendPasswordResetEmail(email, token);
+    }
+
+    // Always return success to prevent email enumeration
+    res.status(200).json({
+      success: true,
+      message: 'If an account exists with that email, a reset link has been sent.'
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// POST /api/auth/reset-password
+const resetPassword = async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword) return res.status(400).json({ success: false, message: 'Token and new password are required' });
+
+  try {
+    const salt = await bcrypt.genSalt(12);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    const success = await AuthModel.resetPassword(token, hashedPassword);
+    if (!success) {
+      return res.status(400).json({ success: false, message: 'Invalid or expired token' });
+    }
+
+    res.status(200).json({ success: true, message: 'Password reset successful' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// GET /api/auth/verify-email
+const verifyEmail = async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ success: false, message: 'Token is required' });
+
+  try {
+    const success = await AuthModel.verifyEmail(token);
+    if (!success) {
+      return res.status(400).send('<h1>Invalid or expired verification link</h1>');
+    }
+
+    res.send('<h1>Email verified successfully! You can now log in to the app.</h1>');
+  } catch (error) {
+    res.status(500).send('<h1>Server error</h1>');
+  }
+};
+
+// POST /api/auth/resend-verification
+const resendVerification = async (req, res) => {
+  try {
+    const user = await UserModel.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (user.is_verified) return res.status(400).json({ success: false, message: 'Email already verified' });
+
+    const verifyToken = await AuthModel.createVerificationToken(user.id);
+    await sendVerificationEmail(user.email, verifyToken);
+
+    res.status(200).json({ success: true, message: 'Verification email resent' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
@@ -172,4 +292,9 @@ module.exports = {
   register,
   login,
   getMe,
+  resendVerification,
+  verifyEmail,
+  forgotPassword,
+  resetPassword,
+  syncFirebase,
 };

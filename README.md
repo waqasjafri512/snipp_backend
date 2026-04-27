@@ -18,7 +18,7 @@ Welcome to the **Snipp** backend API! This is a high-performance Node.js & Postg
 *   **Database**: PostgreSQL
 *   **Real-time**: Socket.io
 *   **Media**: Multer (Local storage / Cloud-ready)
-*   **Auth**: JSON Web Tokens (JWT) & Bcrypt
+*   **Auth**: Firebase Authentication (via Admin SDK) & Custom JWT
 
 ## 🏁 Getting Started
 
@@ -26,6 +26,7 @@ Welcome to the **Snipp** backend API! This is a high-performance Node.js & Postg
 
 *   Node.js (v16+)
 *   PostgreSQL (Local or Cloud instance like Supabase/Neon)
+*   Firebase Project (for Authentication)
 
 ### Installation
 
@@ -47,10 +48,13 @@ Welcome to the **Snipp** backend API! This is a high-performance Node.js & Postg
     ```
     Update the database credentials and Agora keys in your `.env`.
 
-4.  **Database Initialization**:
+4.  **Firebase Configuration**:
+    Download your Service Account JSON from Firebase Console and save it as `firebase-adminsdk.json` in the root directory.
+
+5.  **Database Initialization**:
     The tables will be automatically created on the first run.
 
-5.  **Run the server**:
+6.  **Run the server**:
     ```bash
     # Development mode
     npm run dev
@@ -63,19 +67,23 @@ Welcome to the **Snipp** backend API! This is a high-performance Node.js & Postg
 
 | Path | Description |
 | :--- | :--- |
-| `/api/auth` | Login, Signup, and JWT Refresh |
+| `/api/auth/sync` | Sync Firebase user with PostgreSQL |
+| `/api/auth/login` | Legacy login support |
 | `/api/profile` | Profile management, Follows, Stats |
 | `/api/dares` | Create, Complete, Like, Comment on Dares |
 | `/api/messages` | Chat history and conversation lists |
 | `/api/stories` | Upload and manage 24h stories |
 | `/api/streams` | RTC Token generation for Agora |
 
-## 📦 Deployment Note!
+## 📦 Deployment Note (Vercel)
 
-This backend is ready for deployment on **Render.com**, **Railway.app**, or **DigitalOcean**. 
+This backend is optimized for **Vercel** deployment. 
 
 > [!IMPORTANT]
-> For production deployment (e.g., Render), ensure you use a cloud PostgreSQL database (Supabase/Neon) and set up Cloudinary or S3 for permanent image storage.
+> Since `.json` keys shouldn't be pushed to GitHub, for Vercel deployment:
+> 1. Copy the entire content of `firebase-adminsdk.json`.
+> 2. Add an Environment Variable in Vercel named `FIREBASE_SERVICE_ACCOUNT`.
+> 3. Paste the JSON content as the value.
 
 ---
 

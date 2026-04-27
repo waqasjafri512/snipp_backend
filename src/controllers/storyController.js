@@ -83,8 +83,81 @@ const deleteStory = async (req, res) => {
   }
 };
 
+// POST /api/stories/:storyId/view
+const viewStory = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    await StoryModel.viewStory(storyId, req.user.id);
+    res.json({ success: true, message: 'Story viewed' });
+  } catch (error) {
+    console.error('ViewStory error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// GET /api/stories/:storyId/viewers
+const getStoryViewers = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const viewers = await StoryModel.getStoryViewers(storyId);
+    res.json({ success: true, data: { viewers, count: viewers.length } });
+  } catch (error) {
+    console.error('GetStoryViewers error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// POST /api/stories/:storyId/react
+const reactToStory = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const { emoji } = req.body;
+    const reaction = await StoryModel.reactToStory(storyId, req.user.id, emoji || '❤️');
+
+    if (!reaction) {
+      return res.status(500).json({ success: false, message: 'Failed to react' });
+    }
+
+    // Real-time: Notify story owner via socket
+    const io = req.app.get('io');
+    // We need the story to find the owner
+    const stories = await StoryModel.getActiveStories();
+    const story = stories.find(s => s.id === parseInt(storyId));
+    if (story && story.user_id !== req.user.id) {
+      io.to(`user_${story.user_id}`).emit('storyReaction', {
+        story_id: storyId,
+        reactor_username: req.user.username,
+        reactor_avatar: req.user.avatar_url,
+        emoji: emoji || '❤️',
+      });
+    }
+
+    res.json({ success: true, data: { reaction } });
+  } catch (error) {
+    console.error('ReactToStory error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// GET /api/stories/:storyId/reactions
+const getStoryReactions = async (req, res) => {
+  try {
+    const { storyId } = req.params;
+    const reactions = await StoryModel.getStoryReactions(storyId);
+    res.json({ success: true, data: { reactions } });
+  } catch (error) {
+    console.error('GetStoryReactions error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   createStory,
   getStories,
   deleteStory,
+  viewStory,
+  getStoryViewers,
+  reactToStory,
+  getStoryReactions,
 };
+
