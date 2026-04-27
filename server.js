@@ -228,6 +228,10 @@ const startServer = async () => {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_expires TIMESTAMP`);
     await pool.query(`ALTER TABLE stories ADD COLUMN IF NOT EXISTS views_count INTEGER DEFAULT 0`);
     
+    // Firebase & FCM Support
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(255) UNIQUE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token TEXT`);
+    
     // Group Chat Support
     await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE`);
     await pool.query(`ALTER TABLE messages ALTER COLUMN receiver_id DROP NOT NULL`);

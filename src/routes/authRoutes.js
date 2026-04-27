@@ -8,7 +8,8 @@ const {
   resetPassword, 
   verifyEmail,
   resendVerification,
-  syncFirebase
+  syncFirebase,
+  updateFcmToken
 } = require('../controllers/authController');
 const { protect } = require('../middlewares/authMiddleware');
 
