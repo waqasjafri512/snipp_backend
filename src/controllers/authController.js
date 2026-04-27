@@ -288,6 +288,20 @@ const resendVerification = async (req, res) => {
   }
 };
 
+// POST /api/auth/fcm-token
+const updateFcmToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'Token is required' });
+
+    await UserModel.updateFcmToken(req.user.id, token);
+    res.status(200).json({ success: true, message: 'FCM token updated' });
+  } catch (error) {
+    console.error('Update FCM token error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -297,4 +311,5 @@ module.exports = {
   forgotPassword,
   resetPassword,
   syncFirebase,
+  updateFcmToken,
 };

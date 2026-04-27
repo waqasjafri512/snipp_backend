@@ -23,5 +23,6 @@ router.get('/verify-email', verifyEmail);
 // Protected routes
 router.get('/me', protect, getMe);
 router.post('/resend-verification', protect, resendVerification);
+router.post('/fcm-token', protect, updateFcmToken);
 
 module.exports = router;
