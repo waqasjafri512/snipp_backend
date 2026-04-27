@@ -57,6 +57,34 @@ io.on('connection', (socket) => {
     }
   });
 
+  // --- Live Stream Events ---
+  socket.on('joinStream', (channelName) => {
+    socket.join(`stream_${channelName}`);
+    console.log(`User ${socket.id} joined stream room: ${channelName}`);
+  });
+
+  socket.on('leaveStream', (channelName) => {
+    socket.leave(`stream_${channelName}`);
+    console.log(`User ${socket.id} left stream room: ${channelName}`);
+  });
+
+  socket.on('streamMessage', (data) => {
+    const { channelName, username, message, avatar } = data;
+    // Broadcast to everyone in the room EXCEPT the sender? 
+    // Actually usually we want it to come back to sender for confirmation if UI is optimistic.
+    io.to(`stream_${channelName}`).emit('streamMessage', {
+      username,
+      message,
+      avatar,
+      timestamp: new Date()
+    });
+  });
+
+  socket.on('streamReaction', (data) => {
+    const { channelName, emoji } = data;
+    io.to(`stream_${channelName}`).emit('streamReaction', { emoji });
+  });
+
   socket.on('disconnect', () => {
     console.log('User disconnected');
   });
