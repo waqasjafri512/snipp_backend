@@ -1,90 +1,90 @@
-# ⚡ Snipp Backend - Premium Social Challenge Platform
+# 🚀 Snipp Backend - High-Performance Social Engine
 
-Welcome to the **Snipp** backend API! This is a high-performance Node.js & PostgreSQL server powering the Snipp mobile application. It features real-time chat, live streaming, story management, and a dynamic "Dare" ecosystem.
-
-## 🚀 Key Features
-
-*   **Real-time Messaging**: Powered by Socket.io for instant communication.
-*   **Live Streaming**: Integration with Agora for low-latency video streaming.
-*   **Dynamic Feed**: Smart algorithms for dares, completions, and interactions.
-*   **Stories & Moments**: 24-hour disappearing content with delete functionality.
-*   **Friends Ecosystem**: Mutual follow logic to build real connections.
-*   **Notifications**: Real-time alerts for likes, comments, and follows.
-
-## 🛠 Tech Stack
-
-*   **Runtime**: Node.js
-*   **Framework**: Express.js (v5)
-*   **Database**: PostgreSQL
-*   **Real-time**: Socket.io
-*   **Media**: Multer (Local storage / Cloud-ready)
-*   **Auth**: Firebase Authentication (via Admin SDK) & Custom JWT
-
-## 🏁 Getting Started
-
-### Prerequisites
-
-*   Node.js (v16+)
-*   PostgreSQL (Local or Cloud instance like Supabase/Neon)
-*   Firebase Project (for Authentication)
-
-### Installation
-
-1.  **Clone the repository**:
-    ```bash
-    git clone <your-repo-url>
-    cd dare-challenge/backend
-    ```
-
-2.  **Install dependencies**:
-    ```bash
-    npm install
-    ```
-
-3.  **Environment Setup**:
-    Create a `.env` file in the root directory based on `.env.example`:
-    ```bash
-    cp .env.example .env
-    ```
-    Update the database credentials and Agora keys in your `.env`.
-
-4.  **Firebase Configuration**:
-    Download your Service Account JSON from Firebase Console and save it as `firebase-adminsdk.json` in the root directory.
-
-5.  **Database Initialization**:
-    The tables will be automatically created on the first run.
-
-6.  **Run the server**:
-    ```bash
-    # Development mode
-    npm run dev
-
-    # Production mode
-    npm start
-    ```
-
-## 📍 API Endpoints Summary
-
-| Path | Description |
-| :--- | :--- |
-| `/api/auth/sync` | Sync Firebase user with PostgreSQL |
-| `/api/auth/login` | Legacy login support |
-| `/api/profile` | Profile management, Follows, Stats |
-| `/api/dares` | Create, Complete, Like, Comment on Dares |
-| `/api/messages` | Chat history and conversation lists |
-| `/api/stories` | Upload and manage 24h stories |
-| `/api/streams` | RTC Token generation for Agora |
-
-## 📦 Deployment Note (Vercel)
-
-This backend is optimized for **Vercel** deployment. 
-
-> [!IMPORTANT]
-> Since `.json` keys shouldn't be pushed to GitHub, for Vercel deployment:
-> 1. Copy the entire content of `firebase-adminsdk.json`.
-> 2. Add an Environment Variable in Vercel named `FIREBASE_SERVICE_ACCOUNT`.
-> 3. Paste the JSON content as the value.
+Welcome to the **Snipp** backend! This is the engine powering the Snipp social ecosystem, built with a focus on real-time interactivity, low-latency communication, and exceptional database resilience.
 
 ---
 
-Made with ❤️ by the Snipp Team.
+## ⚡ Core Features
+
+### 📞 Real-time Signaling System
+- **Video & Audio Handshake**: Advanced Socket.io event handling for 1-on-1 calls (`callUser`, `answerCall`, `rejectCall`, `endCall`).
+- **RTC Tokenization**: Dynamic Agora token generation with specialized roles for broadcasters and call participants.
+
+### 🛡️ Resilient Database Architecture
+- **Fault-Tolerant Queries**: Custom `queryResilient` implementation that automatically detects and retries queries during transient database connection drops.
+- **Optimized Connection Pool**: Fine-tuned PostgreSQL pool management to ensure stability under high concurrent loads.
+
+### 🔔 Integrated Notification Service
+- **Hybrid Delivery**: Real-time socket emissions combined with high-priority **Firebase Cloud Messaging (FCM)** for cross-platform push notifications.
+- **Actionable Alerts**: Support for chat, call, and social interaction notifications with custom payload data.
+
+### 🎭 Dynamic Social Logic
+- **Dare Ecosystem**: Complex logic for creating, accepting, and liking dares with real-time feedback.
+- **Stories & Moments**: Auto-expiring content logic with efficient deletion and view tracking.
+
+---
+
+## 🛠 Tech Stack
+
+- **Runtime**: Node.js (v18+)
+- **Framework**: Express.js (v5.x for improved performance)
+- **Database**: PostgreSQL
+- **Real-time**: Socket.io (with sticky-session support)
+- **Security**: Firebase Admin SDK (Auth & UID Sync)
+- **Email**: Nodemailer (Professional template support)
+
+---
+
+## 🏁 Getting Started
+
+### 1. Prerequisites
+- Node.js (v18.x or higher)
+- PostgreSQL (v14.x or higher)
+- Firebase Project Service Account
+
+### 2. Environment Setup
+Create a `.env` file based on `.env.example`:
+```env
+PORT=5000
+DATABASE_URL=postgres://user:pass@host:5432/dbname
+JWT_SECRET=your_secret
+AGORA_APP_ID=your_id
+AGORA_APP_CERTIFICATE=your_cert
+```
+
+### 3. Firebase SDK
+Save your service account JSON as `firebase-adminsdk.json` in the root directory.
+
+### 4. Installation & Launch
+```bash
+npm install
+# Development mode with auto-reload
+npm run dev
+# Production launch
+npm start
+```
+
+---
+
+## 📍 API Reference
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/auth/sync` | `POST` | Primary entry point for Firebase UID synchronization. |
+| `/api/auth/fcm-token` | `POST` | Update user push notification tokens. |
+| `/api/dares/toggle-like` | `POST` | Toggle likes with instant real-time notification. |
+| `/api/streams/get-token` | `GET` | Generate RTC tokens for calls and streaming. |
+| `/api/messages/history` | `GET` | Retrieve conversation history with pagination. |
+
+---
+
+## 📦 Deployment
+
+This server is designed to be **Cloud Native**. It is fully compatible with:
+- **Vercel** (Serverless functions)
+- **Heroku / DigitalOcean** (Persistent containers)
+- **Docker** (Environment consistency)
+
+---
+
+Made with ❤️ by the **Snipp Engineering Team**.

@@ -3,23 +3,25 @@ const NotificationModel = require('../models/notificationModel');
 const ProfileModel = require('../models/profileModel');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const fs = require('fs');
+const { sendPushNotification } = require('../services/notificationService');
 
 // POST /api/dares/create
 const createDare = async (req, res) => {
   try {
     const { title, description, category_id, difficulty, media_url, media_type, post_type } = req.body;
+    const finalTitle = (post_type === 'general' && !title) ? 'General Post' : title;
 
-    if (!title || !description) {
+    if (!finalTitle || !description) {
       return res.status(400).json({ success: false, message: 'Title and description are required' });
     }
 
-    if (title.length > 200) {
+    if (finalTitle.length > 200) {
       return res.status(400).json({ success: false, message: 'Title must be under 200 characters' });
     }
 
     const dare = await DareModel.createDare({
       creator_id: req.user.id,
-      title,
+      title: finalTitle,
       description,
       category_id,
       difficulty,
@@ -30,7 +32,13 @@ const createDare = async (req, res) => {
 
     // Real-time: Notify everyone about new dare
     const io = req.app.get('io');
-    io.emit('newDare', { ...dare, username: req.user.username });
+    io.emit('newDare', { 
+      ...dare, 
+      creator_username: req.user.username,
+      creator_full_name: req.user.full_name,
+      creator_avatar: req.user.avatar_url,
+      creator_verified: req.user.is_verified
+    });
 
     res.status(201).json({
       success: true,
@@ -110,6 +118,7 @@ const toggleLike = async (req, res) => {
     // Get dare to find creator
     const dare = await DareModel.getDareById(dareId, req.user.id);
     if (dare) {
+      const io = req.app.get('io');
       if (String(dare.creator_id) !== String(req.user.id)) {
         await NotificationModel.createNotification({
           user_id: dare.creator_id,
@@ -121,7 +130,6 @@ const toggleLike = async (req, res) => {
         await ProfileModel.updateXP(dare.creator_id, 5);
 
         // Real-time: Notify creator
-        const io = req.app.get('io');
         io.to(`user_${dare.creator_id}`).emit('newNotification', {
           type: 'like',
           actor_id: req.user.id,
@@ -130,6 +138,13 @@ const toggleLike = async (req, res) => {
           dare_id: dareId,
           dare_title: dare.title,
           created_at: new Date()
+        });
+
+        // Send Push Notification
+        await sendPushNotification(dare.creator_id, {
+          title: 'New Like! ❤️',
+          body: `${req.user.full_name || req.user.username} liked your dare: ${dare.title}`,
+          data: { type: 'like', dare_id: String(dareId) }
         });
       }
       
@@ -160,9 +175,20 @@ const addComment = async (req, res) => {
 
     const comment = await DareModel.addComment(req.params.id, req.user.id, content.trim(), parent_id);
 
-    // Notify creator
+    const io = req.app.get('io');
     const dare = await DareModel.getDareById(req.params.id, req.user.id);
     if (dare) {
+      // Real-time: Emit new comment for anyone viewing comments
+      io.emit('newComment', { 
+        dare_id: req.params.id, 
+        comment: {
+          ...comment,
+          username: req.user.username,
+          full_name: req.user.full_name,
+          avatar_url: req.user.avatar_url
+        }
+      });
+
       if (String(dare.creator_id) !== String(req.user.id)) {
         await NotificationModel.createNotification({
           user_id: dare.creator_id,
@@ -172,7 +198,6 @@ const addComment = async (req, res) => {
         });
 
         // Real-time: Notify creator
-        const io = req.app.get('io');
         io.to(`user_${dare.creator_id}`).emit('newNotification', {
           type: 'comment',
           actor_id: req.user.id,
@@ -182,12 +207,19 @@ const addComment = async (req, res) => {
           dare_title: dare.title,
           created_at: new Date()
         });
+
+        // Send Push Notification
+        await sendPushNotification(dare.creator_id, {
+          title: 'New Comment! 💬',
+          body: `${req.user.full_name || req.user.username} commented on your dare: ${dare.title}`,
+          data: { type: 'comment', dare_id: String(req.params.id) }
+        });
       }
       
       // Award XP for commenting
       await ProfileModel.updateXP(req.user.id, 3);
 
-      // Real-time: Update feed for everyone
+      // Real-time: Update feed for everyone (comment count update)
       const updatedDare = await DareModel.getDareById(req.params.id, req.user.id);
       if (updatedDare) {
         io.emit('dareUpdated', updatedDare);
@@ -279,6 +311,13 @@ const acceptDare = async (req, res) => {
         dare_title: dare.title,
         created_at: new Date()
       });
+
+      // Send Push Notification
+      await sendPushNotification(dare.creator_id, {
+        title: 'Dare Accepted! 🔥',
+        body: `${req.user.full_name || req.user.username} accepted your dare: ${dare.title}`,
+        data: { type: 'accept', dare_id: String(req.params.id) }
+      });
     }
 
     res.status(201).json({ success: true, message: 'Dare accepted! 🔥', data: { accept } });
@@ -321,6 +360,13 @@ const completeDare = async (req, res) => {
           dare_id: dareId,
           dare_title: dare.title,
           created_at: new Date()
+        });
+
+        // Send Push Notification
+        await sendPushNotification(dare.creator_id, {
+          title: 'Dare Completed! 🎉',
+          body: `${req.user.full_name || req.user.username} completed your dare: ${dare.title}`,
+          data: { type: 'complete', dare_id: String(dareId) }
         });
       }
       
@@ -368,21 +414,39 @@ const getUserDares = async (req, res) => {
 // PUT /api/dares/:id
 const updateDare = async (req, res) => {
   try {
-    const { title, description, category_id, difficulty } = req.body;
+    const { title, description, category, difficulty, media_url, media_type, post_type } = req.body;
+    const finalTitle = (post_type === 'general' && !title) ? 'General Post' : title;
     
-    if (!title || !description) {
+    if (!finalTitle || !description) {
       return res.status(400).json({ success: false, message: 'Title and description are required' });
     }
 
+    // Map category name to ID if needed
+    let category_id = null;
+    if (category) {
+      const cats = await DareModel.getCategories();
+      const matched = cats.find(c => category.toLowerCase().includes(c.name.toLowerCase()));
+      if (matched) category_id = matched.id;
+    }
+
     const dare = await DareModel.updateDare(req.params.id, req.user.id, {
-      title,
+      title: finalTitle,
       description,
       category_id,
       difficulty,
+      media_url,
+      media_type
     });
 
     if (!dare) {
       return res.status(404).json({ success: false, message: 'Dare not found or unauthorized' });
+    }
+
+    // Real-time: Update feed for everyone
+    const updatedDare = await DareModel.getDareById(req.params.id, req.user.id);
+    if (updatedDare) {
+      const io = req.app.get('io');
+      io.emit('dareUpdated', updatedDare);
     }
 
     res.json({ success: true, message: 'Dare updated successfully', data: { dare } });

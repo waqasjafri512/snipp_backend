@@ -1,6 +1,7 @@
 const StoryModel = require('../models/storyModel');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const fs = require('fs');
+const { sendPushNotification } = require('../services/notificationService');
 
 const createStory = async (req, res) => {
   try {
@@ -129,6 +130,13 @@ const reactToStory = async (req, res) => {
         reactor_username: req.user.username,
         reactor_avatar: req.user.avatar_url,
         emoji: emoji || '❤️',
+      });
+
+      // Send Push Notification
+      await sendPushNotification(story.user_id, {
+        title: 'Story Reaction! 😍',
+        body: `${req.user.full_name || req.user.username} reacted ${emoji || '❤️'} to your story.`,
+        data: { type: 'story_reaction', story_id: String(storyId) }
       });
     }
 

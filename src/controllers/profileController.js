@@ -2,6 +2,7 @@ const ProfileModel = require('../models/profileModel');
 const NotificationModel = require('../models/notificationModel');
 const { uploadToCloudinary } = require('../config/cloudinary');
 const fs = require('fs');
+const { sendPushNotification } = require('../services/notificationService');
 
 // GET /api/profile/:userId
 const getProfile = async (req, res) => {
@@ -42,7 +43,11 @@ const getProfile = async (req, res) => {
 // PUT /api/profile/update
 const updateProfile = async (req, res) => {
   try {
-    const allowedFields = ['full_name', 'bio', 'avatar_url', 'cover_url', 'location', 'website', 'category', 'date_of_birth', 'gender', 'works_at', 'studied_at', 'from_location'];
+    const allowedFields = [
+      'full_name', 'bio', 'avatar_url', 'cover_url', 'location', 'website', 
+      'category', 'date_of_birth', 'gender', 'works_at', 'studied_at', 'from_location',
+      'is_private', 'show_activity', 'push_notifications', 'email_notifications'
+    ];
     const updates = {};
 
     for (const field of allowedFields) {
@@ -96,6 +101,13 @@ const followUser = async (req, res) => {
       actor_username: req.user.username,
       actor_avatar: req.user.avatar_url,
       created_at: new Date()
+    });
+
+    // Send Push Notification
+    await sendPushNotification(targetId, {
+      title: 'New Follower! 👤',
+      body: `${req.user.full_name || req.user.username} started following you.`,
+      data: { type: 'follow', actor_id: String(req.user.id) }
     });
 
     res.json({ success: true, message: 'Followed successfully' });

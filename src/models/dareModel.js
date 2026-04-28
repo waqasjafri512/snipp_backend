@@ -85,10 +85,37 @@ const createDareTables = async () => {
       IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='dares' AND column_name='post_type') THEN
         ALTER TABLE dares ADD COLUMN post_type VARCHAR(20) DEFAULT 'dare' CHECK (post_type IN ('dare', 'general'));
       END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='dares' AND column_name='location') THEN
+        ALTER TABLE dares ADD COLUMN location VARCHAR(200) DEFAULT NULL;
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='dares' AND column_name='feeling') THEN
+        ALTER TABLE dares ADD COLUMN feeling VARCHAR(100) DEFAULT NULL;
+      END IF;
+
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='dares' AND column_name='tagged_user_ids') THEN
+        ALTER TABLE dares ADD COLUMN tagged_user_ids INTEGER[] DEFAULT '{}';
+      END IF;
     END $$;
   `;
   try {
     await pool.query(query);
+    
+    // Performance indexes for feed and interaction queries
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_dares_creator_active ON dares(creator_id, is_active);
+      CREATE INDEX IF NOT EXISTS idx_dares_created_at ON dares(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_likes_user_dare ON likes(user_id, dare_id);
+      CREATE INDEX IF NOT EXISTS idx_follows_follower ON follows(follower_id, following_id);
+      CREATE INDEX IF NOT EXISTS idx_follows_following ON follows(following_id, follower_id);
+      CREATE INDEX IF NOT EXISTS idx_dare_accepts_status ON dare_accepts(status, completed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_dare_accepts_user ON dare_accepts(user_id, dare_id);
+      CREATE INDEX IF NOT EXISTS idx_comments_dare ON comments(dare_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_blocked_users_blocker ON blocked_users(blocker_id);
+      CREATE INDEX IF NOT EXISTS idx_blocked_users_blocked ON blocked_users(blocked_id);
+    `);
+    
     console.log('✅ Dares, Likes, Comments, Accepts tables ready');
   } catch (error) {
     console.error('❌ Error creating dare tables:', error.message);
@@ -139,6 +166,7 @@ const getFeed = async (userId, limit = 10, offset = 0) => {
                NULL::integer as solver_id,
                NULL::varchar as solver_username,
                NULL::varchar as solver_avatar,
+               false as solver_verified,
                false as is_following_solver
         FROM dares d
         JOIN users u ON d.creator_id = u.id
@@ -165,6 +193,7 @@ const getFeed = async (userId, limit = 10, offset = 0) => {
                da.user_id as solver_id,
                us.username as solver_username,
                us.avatar_url as solver_avatar,
+               us.is_verified as solver_verified,
                EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = da.user_id) AS is_following_solver
         FROM dare_accepts da
         JOIN dares d ON da.dare_id = d.id
@@ -220,17 +249,19 @@ const deleteDare = async (dareId, userId) => {
 };
 
 // Update dare
-const updateDare = async (dareId, userId, { title, description, category_id, difficulty }) => {
+const updateDare = async (dareId, userId, { title, description, category_id, difficulty, media_url, media_type }) => {
   const result = await pool.query(
     `UPDATE dares 
      SET title = COALESCE($1, title),
          description = COALESCE($2, description),
-         category_id = COALESCE($3, category_id),
+         category_id = $3,
          difficulty = COALESCE($4, difficulty),
+         media_url = $5,
+         media_type = $6,
          updated_at = CURRENT_TIMESTAMP
-     WHERE id = $5 AND creator_id = $6
+     WHERE id = $7 AND creator_id = $8
      RETURNING *`,
-    [title, description, category_id, difficulty, dareId, userId]
+    [title, description, category_id || null, difficulty || 'medium', media_url || null, media_type || null, dareId, userId]
   );
   return result.rows[0];
 };

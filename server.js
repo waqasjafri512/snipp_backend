@@ -12,7 +12,8 @@ const { createNotificationsTable } = require('./src/models/notificationModel');
 const { createMessagesTable, saveMessage } = require('./src/models/messageModel');
 const { createStreamsTable } = require('./src/models/streamModel');
 const { createStoryTable } = require('./src/models/storyModel');
-const { createBlockedTable } = require('./src/models/blockedModel');
+const { createBlockedTable, isBlockedBidirectional } = require('./src/models/blockedModel');
+const { sendPushNotification } = require('./src/services/notificationService');
 
 const PORT = process.env.PORT || 5000;
 
@@ -75,8 +76,7 @@ io.on('connection', (socket) => {
   // Handle private message
   socket.on('sendMessage', async ({ senderId, receiverId, content, type, mediaUrl }) => {
     try {
-      // Check if blocked
-      const { isBlockedBidirectional } = require('./src/models/blockedModel');
+      // Check if blocked (using top-level import)
       const blocked = await isBlockedBidirectional(senderId, receiverId);
       if (blocked) {
         socket.emit('error', { message: 'Cannot send message to this user.' });
@@ -91,6 +91,16 @@ io.on('connection', (socket) => {
       
       // Emit back to sender
       io.to(`user_${senderId}`).emit('message', message);
+      
+      // Send Push Notification
+      const senderResult = await pool.query('SELECT full_name, username FROM users WHERE id = $1', [senderId]);
+      const senderName = senderResult.rows[0].full_name || senderResult.rows[0].username || 'Someone';
+      
+      await sendPushNotification(receiverId, {
+        title: `New message from ${senderName}`,
+        body: content || (type === 'image' ? 'Sent an image' : 'Sent a video'),
+        data: { type: 'chat', senderId: String(senderId) }
+      });
       
       console.log(`Message sent from ${senderId} to ${receiverId}`);
     } catch (error) {
@@ -120,7 +130,54 @@ io.on('connection', (socket) => {
     console.log(`User ${socket.id} left stream room: ${channelName}`);
   });
 
-  // --- Group Chat Events ---
+  // --- Video/Audio Call Events ---
+  socket.on('callUser', async ({ senderId, receiverId, type, channelName }) => {
+    try {
+      const senderResult = await pool.query('SELECT full_name, username, avatar_url FROM users WHERE id = $1', [senderId]);
+      const sender = senderResult.rows[0];
+      const senderName = sender.full_name || sender.username || 'Someone';
+
+      // Notify receiver via socket
+      io.to(`user_${receiverId}`).emit('incomingCall', {
+        from: senderId,
+        fromName: senderName,
+        fromAvatar: sender.avatar_url,
+        type,
+        channelName
+      });
+
+      // Also send push notification for calls
+      await sendPushNotification(receiverId, {
+        title: `Incoming ${type} call`,
+        body: `${senderName} is calling you...`,
+        data: { 
+          type: 'call', 
+          callType: type, 
+          senderId: String(senderId), 
+          channelName,
+          senderName,
+          senderAvatar: sender.avatar_url || ''
+        }
+      });
+
+      console.log(`${type} call initiated from ${senderId} to ${receiverId}`);
+    } catch (error) {
+      console.error('Socket callUser error:', error);
+    }
+  });
+
+  socket.on('answerCall', ({ to, channelName }) => {
+    io.to(`user_${to}`).emit('callAccepted', { channelName });
+  });
+
+  socket.on('rejectCall', ({ to }) => {
+    io.to(`user_${to}`).emit('callRejected');
+  });
+
+  socket.on('endCall', ({ to }) => {
+    io.to(`user_${to}`).emit('callEnded');
+  });
+
   socket.on('joinGroup', (groupId) => {
     socket.join(`group_${groupId}`);
     console.log(`User ${socket.userId} joined group_${groupId}`);
@@ -142,6 +199,21 @@ io.on('connection', (socket) => {
       
       // Emit to everyone in the group room
       io.to(`group_${groupId}`).emit('groupMessage', message);
+      
+      // Send Push Notification to group members (excluding sender)
+      try {
+        const membersResult = await pool.query('SELECT user_id FROM group_members WHERE group_id = $1 AND user_id != $2', [groupId, senderId]);
+        const groupResult = await pool.query('SELECT name FROM groups WHERE id = $1', [groupId]);
+        const groupName = groupResult.rows[0].name;
+        
+        for (const member of membersResult.rows) {
+          await sendPushNotification(member.user_id, {
+            title: groupName,
+            body: `${socket.username}: ${content || (type === 'image' ? 'sent an image' : 'sent a video')}`,
+            data: { type: 'group_chat', groupId: String(groupId) }
+          });
+        }
+      } catch (e) { console.error('Error sending group push notifications:', e); }
       
       console.log(`Group message sent from ${senderId} to group ${groupId}`);
     } catch (error) {
@@ -231,6 +303,7 @@ const startServer = async () => {
     // Firebase & FCM Support
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS firebase_uid VARCHAR(255) UNIQUE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token TEXT`);
+    await pool.query(`ALTER TABLE users ALTER COLUMN password DROP NOT NULL`);
     
     // Group Chat Support
     await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE`);

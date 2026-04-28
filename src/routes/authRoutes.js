@@ -9,7 +9,8 @@ const {
   verifyEmail,
   resendVerification,
   syncFirebase,
-  updateFcmToken
+  updateFcmToken,
+  changePassword
 } = require('../controllers/authController');
 const { protect } = require('../middlewares/authMiddleware');
 
@@ -25,5 +26,6 @@ router.get('/verify-email', verifyEmail);
 router.get('/me', protect, getMe);
 router.post('/resend-verification', protect, resendVerification);
 router.post('/fcm-token', protect, updateFcmToken);
+router.post('/change-password', protect, changePassword);
 
 module.exports = router;

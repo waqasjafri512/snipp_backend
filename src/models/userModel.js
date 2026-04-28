@@ -7,7 +7,7 @@ const createUsersTable = async () => {
       id SERIAL PRIMARY KEY,
       username VARCHAR(50) UNIQUE NOT NULL,
       email VARCHAR(100) UNIQUE NOT NULL,
-      password VARCHAR(255) NOT NULL,
+      password VARCHAR(255),
       full_name VARCHAR(100),
       avatar_url TEXT DEFAULT NULL,
       bio TEXT DEFAULT '',
@@ -31,20 +31,20 @@ const createUsersTable = async () => {
 
 // Find user by email
 const findByEmail = async (email) => {
-  const result = await pool.query('SELECT * FROM users WHERE TRIM(LOWER(email)) = TRIM(LOWER($1))', [email]);
+  const result = await pool.queryResilient('SELECT * FROM users WHERE TRIM(LOWER(email)) = TRIM(LOWER($1))', [email]);
   return result.rows[0];
 };
 
 // Find user by username
 const findByUsername = async (username) => {
-  const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+  const result = await pool.queryResilient('SELECT * FROM users WHERE username = $1', [username]);
   return result.rows[0];
 };
 
 // Find user by ID
 const findById = async (id) => {
-  const result = await pool.query(
-    'SELECT id, username, email, full_name, avatar_url, bio, category, website, is_verified, created_at FROM users WHERE id = $1',
+  const result = await pool.queryResilient(
+    'SELECT id, username, email, full_name, avatar_url, bio, category, website, is_verified, fcm_token, created_at FROM users WHERE id = $1',
     [id]
   );
   return result.rows[0];
@@ -52,7 +52,7 @@ const findById = async (id) => {
 
 // Create new user
 const createUser = async ({ username, email, password, full_name }) => {
-  const result = await pool.query(
+  const result = await pool.queryResilient(
     `INSERT INTO users (username, email, password, full_name) 
      VALUES ($1, LOWER($2), $3, $4) 
      RETURNING id, username, email, full_name, avatar_url, bio, category, website, is_verified, created_at`,
@@ -69,7 +69,7 @@ const updateUser = async (id, fields) => {
   const setClause = keys.map((key, i) => `${key} = $${i + 1}`).join(', ');
   values.push(id);
   
-  const result = await pool.query(
+  const result = await pool.queryResilient(
     `UPDATE users SET ${setClause}, updated_at = CURRENT_TIMESTAMP 
      WHERE id = $${values.length} 
      RETURNING id, username, email, full_name, avatar_url, bio, category, website, is_verified, created_at`,
@@ -80,12 +80,12 @@ const updateUser = async (id, fields) => {
 
 // Update user FCM token
 const updateFcmToken = async (userId, token) => {
-  await pool.query('UPDATE users SET fcm_token = $1 WHERE id = $2', [token, userId]);
+  await pool.queryResilient('UPDATE users SET fcm_token = $1 WHERE id = $2', [token, userId]);
 };
 
 // Find user by Firebase UID
 const findByFirebaseUid = async (uid) => {
-  const result = await pool.query(
+  const result = await pool.queryResilient(
     'SELECT id, username, email, full_name, avatar_url, bio, category, website, is_verified, created_at FROM users WHERE firebase_uid = $1',
     [uid]
   );
@@ -94,7 +94,7 @@ const findByFirebaseUid = async (uid) => {
 
 // Sync Firebase User
 const syncFirebaseUser = async ({ firebase_uid, email, username, full_name, avatar_url }) => {
-  const result = await pool.query(
+  const result = await pool.queryResilient(
     `INSERT INTO users (firebase_uid, email, username, full_name, avatar_url, is_verified) 
      VALUES ($1, LOWER($2), $3, $4, $5, true) 
      ON CONFLICT (email) DO UPDATE SET firebase_uid = EXCLUDED.firebase_uid, is_verified = true

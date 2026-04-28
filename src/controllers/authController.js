@@ -302,6 +302,40 @@ const updateFcmToken = async (req, res) => {
   }
 };
 
+// POST /api/auth/change-password
+const changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new passwords are required' });
+    }
+
+    const user = await UserModel.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    // Check current password
+    if (!user.password) {
+      return res.status(400).json({ success: false, message: 'This account uses social login. Set a password via Forgot Password first.' });
+    }
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(12);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    await UserModel.updateUser(req.user.id, { password: hashedPassword });
+
+    res.status(200).json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -312,4 +346,5 @@ module.exports = {
   resetPassword,
   syncFirebase,
   updateFcmToken,
+  changePassword,
 };

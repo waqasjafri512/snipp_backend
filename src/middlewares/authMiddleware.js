@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
 const UserModel = require('../models/userModel');
-const admin = require('../config/firebase');
 
 const protect = async (req, res, next) => {
   try {
@@ -20,28 +19,25 @@ const protect = async (req, res, next) => {
 
     let user;
 
+    // 1. Try custom JWT FIRST (fast, local verification — no network call)
     try {
-      // 1. First, try to verify as a Firebase ID Token
-      if (admin.apps.length > 0) {
-        const decodedFirebaseToken = await admin.auth().verifyIdToken(token);
-        user = await UserModel.findByFirebaseUid(decodedFirebaseToken.uid);
-        
-        // If user is not found by Firebase UID, we might need to link them, 
-        // but typically they should hit /sync first. Let's return error if not found.
-        if (!user) {
-          // As a fallback, check by email if sync hasn't fully completed
-          user = await UserModel.findByEmail(decodedFirebaseToken.email);
-        }
-      } else {
-        throw new Error("Firebase not initialized");
-      }
-    } catch (firebaseError) {
-      // 2. Fallback to our Custom JWT (for legacy active sessions)
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      user = await UserModel.findById(decoded.id);
+    } catch (jwtError) {
+      // 2. Fallback to Firebase ID Token (slower, network call to Google)
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        user = await UserModel.findById(decoded.id);
-      } catch (jwtError) {
-        // If both fail, return error
+        const admin = require('../config/firebase');
+        if (admin.apps && admin.apps.length > 0) {
+          const decodedFirebaseToken = await admin.auth().verifyIdToken(token);
+          user = await UserModel.findByFirebaseUid(decodedFirebaseToken.uid);
+          
+          if (!user) {
+            // Fallback: check by email if sync hasn't fully completed
+            user = await UserModel.findByEmail(decodedFirebaseToken.email);
+          }
+        }
+      } catch (firebaseError) {
+        // Both failed
         return res.status(401).json({
           success: false,
           message: 'Invalid or expired token',

@@ -22,6 +22,14 @@ const createProfilesTable = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS blocked_users (
+      id SERIAL PRIMARY KEY,
+      blocker_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(blocker_id, blocked_id)
+    );
+
     CREATE TABLE IF NOT EXISTS follows (
       id SERIAL PRIMARY KEY,
       follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -43,6 +51,22 @@ const createProfilesTable = async () => {
       END IF;
       IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='from_location') THEN
         ALTER TABLE profiles ADD COLUMN from_location VARCHAR(150) DEFAULT '';
+      END IF;
+      
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='is_private') THEN
+        ALTER TABLE profiles ADD COLUMN is_private BOOLEAN DEFAULT false;
+      END IF;
+      
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='show_activity') THEN
+        ALTER TABLE profiles ADD COLUMN show_activity BOOLEAN DEFAULT true;
+      END IF;
+      
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='push_notifications') THEN
+        ALTER TABLE profiles ADD COLUMN push_notifications BOOLEAN DEFAULT true;
+      END IF;
+      
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='profiles' AND column_name='email_notifications') THEN
+        ALTER TABLE profiles ADD COLUMN email_notifications BOOLEAN DEFAULT false;
       END IF;
     END $$;
   `;
@@ -69,7 +93,8 @@ const getProfileByUserId = async (userId) => {
     `SELECT u.id, u.username, u.email, u.full_name, u.avatar_url, u.bio, u.category, u.website, u.is_verified, u.created_at,
             p.cover_url, p.location, p.date_of_birth, p.gender, p.works_at, p.studied_at, p.from_location,
             p.dares_posted, p.dares_completed, p.dares_accepted,
-            p.followers_count, p.following_count, p.xp, p.level
+            p.followers_count, p.following_count, p.xp, p.level,
+            p.is_private, p.show_activity, p.push_notifications, p.email_notifications
      FROM users u
      LEFT JOIN profiles p ON u.id = p.user_id
      WHERE u.id = $1`,
@@ -85,7 +110,10 @@ const updateProfile = async (userId, fields) => {
   const profileFields = {};
   
   const userColumns = ['full_name', 'bio', 'avatar_url', 'category', 'website'];
-  const profileColumns = ['location', 'date_of_birth', 'gender', 'cover_url', 'works_at', 'studied_at', 'from_location'];
+  const profileColumns = [
+    'location', 'date_of_birth', 'gender', 'cover_url', 'works_at', 'studied_at', 'from_location',
+    'is_private', 'show_activity', 'push_notifications', 'email_notifications'
+  ];
 
   for (const [key, value] of Object.entries(fields)) {
     if (userColumns.includes(key)) userFields[key] = value;

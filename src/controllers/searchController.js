@@ -14,7 +14,7 @@ const globalSearch = async (req, res) => {
   try {
     // Search Users (Excluding blocked)
     const usersResult = await pool.query(
-      `SELECT u.id, u.username, u.full_name, u.avatar_url,
+      `SELECT u.id, u.username, u.full_name, u.avatar_url, u.is_verified,
               EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = u.id) AS is_following
        FROM users u
        WHERE (u.username ILIKE $2 OR u.full_name ILIKE $2)
@@ -29,7 +29,8 @@ const globalSearch = async (req, res) => {
 
     // Search Dares (Excluding blocked creators)
     const daresResult = await pool.query(
-      `SELECT d.*, u.username AS creator_username, u.full_name AS creator_full_name, u.avatar_url AS creator_avatar,
+      `SELECT d.*, u.username AS creator_username, u.full_name AS creator_full_name, 
+              u.avatar_url AS creator_avatar, u.is_verified AS creator_verified,
               EXISTS(SELECT 1 FROM likes WHERE user_id = $1 AND dare_id = d.id) AS is_liked
        FROM dares d
        JOIN users u ON d.creator_id = u.id
@@ -62,7 +63,8 @@ const getTrending = async (req, res) => {
   const userId = req.user.id;
   try {
     const result = await pool.query(
-      `SELECT d.*, u.username AS creator_username, u.full_name AS creator_full_name, u.avatar_url AS creator_avatar,
+      `SELECT d.*, u.username AS creator_username, u.full_name AS creator_full_name, 
+              u.avatar_url AS creator_avatar, u.is_verified AS creator_verified,
               EXISTS(SELECT 1 FROM likes WHERE user_id = $1 AND dare_id = d.id) AS is_liked,
               (d.likes_count + d.accepts_count * 2) as trend_score
        FROM dares d
@@ -92,7 +94,7 @@ const getTrendingCreators = async (req, res) => {
   const userId = req.user.id;
   try {
     const result = await pool.query(
-      `SELECT u.id, u.username, u.full_name, u.avatar_url, p.followers_count,
+      `SELECT u.id, u.username, u.full_name, u.avatar_url, u.is_verified, p.followers_count,
               EXISTS(SELECT 1 FROM follows WHERE follower_id = $1 AND following_id = u.id) AS is_following
        FROM users u
        JOIN profiles p ON u.id = p.user_id
